@@ -8,12 +8,10 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import ru.hh.school.unittesting.homework.LibraryManager;
-import ru.hh.school.unittesting.homework.NotificationService;
-import ru.hh.school.unittesting.homework.UserService;
 
-import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class LibraryManagerTest {
@@ -53,6 +51,9 @@ class LibraryManagerTest {
     when(userService.isUserActive("777")).thenReturn(false);
     boolean isBorrowed = libraryManager.borrowBook("1984", "777");
 
+    verify(notificationService, times(1)).notifyUser(eq("777"), eq("Your account is not active."));
+    verify(notificationService, never()).notifyUser(eq("777"), eq("You have borrowed the book: " + "1984"));
+
     assertFalse(isBorrowed);
   }
 
@@ -77,20 +78,24 @@ class LibraryManagerTest {
       "1984, 777, 9",
       "9999, 123, 14"
   })
-  void testBorrowBookSuccess(String bookId, String userId, int remaining) {
+  void testBorrowBookSuccess(String bookId, String userId, int expectedRemaining) {
     when(userService.isUserActive(userId)).thenReturn(true);
 
-    libraryManager.borrowBook(bookId, userId);
+    boolean result = libraryManager.borrowBook(bookId, userId);
+    int remainingActual = libraryManager.getAvailableCopies(bookId);
 
-    int expectedRemaining = libraryManager.getAvailableCopies(bookId);
+    verify(notificationService, never()).notifyUser(eq(userId), eq("Your account is not active."));
+    verify(notificationService, times(1)).notifyUser(eq(userId), eq("You have borrowed the book: " + bookId));
 
-    assertEquals(remaining, expectedRemaining);
-    assertTrue(libraryManager.borrowBook(bookId, userId));
+    assertEquals(expectedRemaining, remainingActual);
+    assertTrue(result);
   }
 
   @Test
   void testReturnNonBorrowedBook() {
     boolean returnResult = libraryManager.returnBook("1234", "777");
+
+    verify(notificationService, never()).notifyUser(eq("777"), eq("You have returned the book: " + "1234"));
 
     assertFalse(returnResult);
   }
@@ -102,6 +107,8 @@ class LibraryManagerTest {
     libraryManager.borrowBook("1984", "777");
     boolean returnResult = libraryManager.returnBook("1984", "123");
 
+    verify(notificationService, never()).notifyUser(eq("777"), eq("You have returned the book: " + "1984"));
+
     assertFalse(returnResult);
   }
 
@@ -111,14 +118,16 @@ class LibraryManagerTest {
 
     libraryManager.borrowBook("1984", "777");
     boolean returnResult = libraryManager.returnBook("1984", "777");
-    Integer copies = libraryManager.getAvailableCopies("1984");
+    int copies = libraryManager.getAvailableCopies("1984");
+
+    verify(notificationService, times(1)).notifyUser(eq("777"), eq("You have returned the book: " + "1984"));
 
     assertEquals(10, copies);
     assertTrue(returnResult);
   }
 
   @Test
-  void FeeCalculatorShouldThrowExceptionIfBookReturnedOnTime() {
+  void feeCalculatorShouldThrowExceptionIfBookReturnedOnTime() {
     var exception = assertThrows(
         IllegalArgumentException.class,
         () -> libraryManager.calculateDynamicLateFee(-1, false, false)
@@ -131,7 +140,8 @@ class LibraryManagerTest {
       "12, false, false, 6",
       "20, true, false, 15",
       "20, false, true, 8",
-      "100, true, true, 60"
+      "100, true, true, 60",
+      "0, false, false, 0"
   })
   void testCalculateDynamicLateFee(
       int overdueDays,
